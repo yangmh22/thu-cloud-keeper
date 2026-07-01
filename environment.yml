@@ -1,0 +1,5 @@
+name: tsinghua-cloud-backup
+channels:
+  - defaults
+dependencies:
+  - python>=3.10
