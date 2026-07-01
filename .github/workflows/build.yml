@@ -49,4 +49,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: tsinghua-cloud-backup-macos
-          path: dist/清华云盘自助备份.app
+          path: dist/清华云盘自助备份-macos.zip

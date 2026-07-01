@@ -21,6 +21,13 @@ python3 -m PyInstaller \
   --hidden-import tkinter.ttk \
   "$PROJECT_ROOT/scripts/pyinstaller_entry.py"
 
+ZIP_PATH="$PROJECT_ROOT/dist/$APP_NAME-macos.zip"
+rm -f "$ZIP_PATH"
+ditto -c -k --sequesterRsrc --keepParent "$PROJECT_ROOT/dist/$APP_NAME.app" "$ZIP_PATH"
+
 echo ""
 echo "macOS app:"
 echo "$PROJECT_ROOT/dist/$APP_NAME.app"
+echo ""
+echo "macOS zip package:"
+echo "$ZIP_PATH"
