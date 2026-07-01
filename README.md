@@ -28,6 +28,44 @@ $env:PYTHONPATH = "$PWD\src"
 python -m tsinghua_cloud_backup.app
 ```
 
+## 打包
+
+Windows：
+
+```powershell
+cd "D:\Project&Research\其他内容\260701清华云盘自助备份"
+.\scripts\package_windows.ps1
+```
+
+生成结果：
+
+```text
+dist\清华云盘自助备份\
+dist\清华云盘自助备份-windows.zip
+```
+
+Windows 版采用 PyInstaller 的文件夹模式，启动更稳定。解压 zip 后双击 `清华云盘自助备份.exe` 即可启动。
+
+macOS 需要在 macOS 系统上构建：
+
+```bash
+cd /path/to/tsinghua-cloud-backup
+chmod +x scripts/package_macos.sh
+./scripts/package_macos.sh
+```
+
+生成结果：
+
+```text
+dist/清华云盘自助备份.app
+```
+
+仓库中也包含 GitHub Actions 工作流。推送 tag 或手动触发 workflow 后，会分别在 Windows 和 macOS runner 上生成构建产物。
+
+## 界面预览
+
+![界面预览](docs/ui-preview.png)
+
 ## Token
 
 在清华云盘个人设置页面获取 Token：
