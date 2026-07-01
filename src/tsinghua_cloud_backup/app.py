@@ -30,6 +30,14 @@ class BackupApp(tk.Tk):
         self.workers_var = tk.IntVar(value=4)
         self.status_var = tk.StringVar(value="请输入 token，然后点击“连接并读取资料库”。")
         self.progress_var = tk.DoubleVar(value=0)
+        self.summary_vars = {
+            "account": tk.StringVar(value="账号：未连接"),
+            "all": tk.StringVar(value="全部：-"),
+            "我的资料库": tk.StringVar(value="我的资料库：-"),
+            "群组共享内容": tk.StringVar(value="群组共享内容：-"),
+            "共享给我的": tk.StringVar(value="共享给我的：-"),
+            "selected": tk.StringVar(value="当前选中：-"),
+        }
 
         self.create_widgets()
         self.after(100, self.process_events)
@@ -49,6 +57,16 @@ class BackupApp(tk.Tk):
         ttk.Label(top, text="下载目录").grid(row=1, column=0, sticky=tk.W, padx=(0, 8), pady=4)
         ttk.Entry(top, textvariable=self.destination_var).grid(row=1, column=1, sticky=tk.EW, pady=4)
         ttk.Button(top, text="选择...", command=self.choose_destination).grid(row=1, column=2, padx=(8, 0), pady=4)
+
+        summary = ttk.LabelFrame(root, text="云盘概览", padding=10)
+        summary.pack(fill=tk.X, pady=(10, 0))
+        summary.columnconfigure(1, weight=1)
+        ttk.Label(summary, textvariable=self.summary_vars["account"]).grid(row=0, column=0, sticky=tk.W, padx=(0, 18), pady=2)
+        ttk.Label(summary, textvariable=self.summary_vars["all"]).grid(row=0, column=1, sticky=tk.W, pady=2)
+        ttk.Label(summary, textvariable=self.summary_vars["我的资料库"]).grid(row=1, column=0, sticky=tk.W, padx=(0, 18), pady=2)
+        ttk.Label(summary, textvariable=self.summary_vars["群组共享内容"]).grid(row=1, column=1, sticky=tk.W, pady=2)
+        ttk.Label(summary, textvariable=self.summary_vars["共享给我的"]).grid(row=1, column=2, sticky=tk.W, pady=2)
+        ttk.Label(summary, textvariable=self.summary_vars["selected"]).grid(row=2, column=0, columnspan=3, sticky=tk.W, pady=(6, 0))
 
         options = ttk.LabelFrame(root, text="备份范围", padding=10)
         options.pack(fill=tk.X, pady=(10, 0))
@@ -142,7 +160,25 @@ class BackupApp(tk.Tk):
                 ),
             )
         total_size = sum(int(repo.get("size") or 0) for repo in selected)
+        self.update_summary()
         self.status_var.set(f"已选 {len(selected)} 个资料库，声明大小 {human_size(total_size)}。")
+
+    def update_summary(self, account: dict | None = None) -> None:
+        if account:
+            total_quota = int(account.get("total") or 0)
+            usage = int(account.get("usage") or 0)
+            account_name = account.get("name") or account.get("email") or "未知账号"
+            quota_text = f"{human_size(usage)} / {human_size(total_quota)}" if total_quota else human_size(usage)
+            self.summary_vars["account"].set(f"账号：{account_name}，空间用量 {quota_text}")
+        total_size = sum(int(repo.get("size") or 0) for repo in self.repositories)
+        self.summary_vars["all"].set(f"全部资料库：{len(self.repositories)} 个，声明大小 {human_size(total_size)}")
+        for category in CATEGORIES:
+            repos = [repo for repo in self.repositories if category_for(repo) == category]
+            size = sum(int(repo.get("size") or 0) for repo in repos)
+            self.summary_vars[category].set(f"{category}：{len(repos)} 个，{human_size(size)}")
+        selected = [repo for repo in self.repositories if category_for(repo) in self.selected_categories()]
+        selected_size = sum(int(repo.get("size") or 0) for repo in selected)
+        self.summary_vars["selected"].set(f"当前选中：{len(selected)} 个，{human_size(selected_size)}")
 
     def start_backup(self) -> None:
         token = self.token_var.get().strip()
@@ -201,6 +237,7 @@ class BackupApp(tk.Tk):
             self.repositories = event["repos"]
             account = event.get("account") or {}
             self.log(f"登录账号：{account.get('name') or account.get('email') or '未知'}")
+            self.update_summary(account)
             self.refresh_repository_view()
         elif kind == "log":
             self.log(event.get("message", ""))
