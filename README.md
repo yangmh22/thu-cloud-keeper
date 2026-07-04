@@ -18,9 +18,10 @@
 - 分别备份“我的资料库”“群组共享内容”和“共享给我的”内容。
 - 显示账号空间用量、资料库数量和各分类声明大小。
 - 支持设置并发下载数量。
-- 已存在且大小一致的文件会自动跳过。
+- 已存在且大小与云端修改时间一致的文件会自动跳过。
 - 使用 `.part` 临时文件保存未完成下载，方便中断后继续。
 - 自动生成备份元数据、资料库清单、文件清单和失败日志。
+- 支持命令行增量同步和 Windows 每日自动同步任务。
 
 ## 下载
 
@@ -67,7 +68,67 @@ xattr -dr com.apple.quarantine "清华云盘自助备份.app"
 
 在页面中获取个人 Token，粘贴到 App 的“个人 Token”输入框，然后点击“连接并读取资料库”。读取完成后，App 会展示各类资料库数量和大小。确认下载目录与勾选范围后，点击“开始下载”。
 
-Token 只在运行时用于请求清华云盘 API。本工具不会主动保存 Token，也不会把 Token 写入日志或备份元数据。
+Token 只在运行时用于请求清华云盘 API。桌面 App 默认不会保存 Token，也不会把 Token 写入日志或备份元数据。下面的每日自动同步功能会把 Token 存入 Windows Credential Manager，避免把明文 Token 写进脚本、命令行或计划任务参数。
+
+## Windows 每日自动同步
+
+每日自动同步不需要每次全量重新下载。程序会重新扫描云端文件清单，并和本地目录比较；本地已有且大小、云端修改时间一致的文件会跳过，只有新增或变化的文件会下载。
+
+先从源码目录安装命令行入口：
+
+```powershell
+python -m pip install -e .
+```
+
+然后把清华云盘 Token 存入 Windows Credential Manager。这样计划任务不需要在命令行、脚本或环境变量里保存明文 Token：
+
+```powershell
+.\scripts\store_token.ps1
+```
+
+可以先做一次只读检查：
+
+```powershell
+python -m tsinghua_cloud_backup.cli check
+```
+
+注册每天凌晨 4 点自动同步到 `D:\Fbackup\清华云盘备份`：
+
+```powershell
+.\scripts\install_scheduled_sync.ps1
+```
+
+也可以自定义时间、目录和并发数：
+
+```powershell
+.\scripts\install_scheduled_sync.ps1 -At "04:00" -Destination "D:\Fbackup\清华云盘备份" -Workers 4
+```
+
+计划任务名称是 `THUCloudKeeperDailySync`。同步日志会写入：
+
+```text
+D:\Fbackup\清华云盘备份\_backup_metadata\scheduled_logs\
+```
+
+手动运行一次同步：
+
+```powershell
+.\scripts\run_scheduled_sync.ps1 -Destination "D:\Fbackup\清华云盘备份"
+```
+
+只扫描差异、不下载文件：
+
+```powershell
+.\scripts\run_scheduled_sync.ps1 -Destination "D:\Fbackup\清华云盘备份" -DryRun
+```
+
+删除计划任务：
+
+```powershell
+Unregister-ScheduledTask -TaskName THUCloudKeeperDailySync -Confirm:$false
+```
+
+默认计划任务使用当前 Windows 用户的交互式登录身份运行。也就是说，电脑在凌晨 4 点需要开机，且该用户需要处于已登录或可交互运行的状态；如果希望“用户未登录也运行”，需要在 Windows 任务计划程序里为该任务配置保存 Windows 凭据。
 
 ## 备份目录结构
 

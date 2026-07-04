@@ -6,10 +6,10 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from .core import BackupOptions, BackupRunner, SeafileClient, category_for, discover_repositories, human_size
+from .core import ALL_CATEGORIES, BackupOptions, BackupRunner, SeafileClient, category_for, discover_repositories, human_size
 
 
-CATEGORIES = ("我的资料库", "群组共享内容", "共享给我的")
+CATEGORIES = ALL_CATEGORIES
 
 
 class BackupApp(tk.Tk):

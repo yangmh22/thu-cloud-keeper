@@ -18,6 +18,7 @@ from typing import Callable, Iterable
 
 
 BASE_URL = "https://cloud.tsinghua.edu.cn"
+ALL_CATEGORIES = ("我的资料库", "群组共享内容", "共享给我的")
 MAX_WINDOWS_PATH = 240
 INVALID_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 RESERVED_NAMES = {
@@ -265,6 +266,7 @@ class BackupOptions:
     categories: set[str]
     workers: int = 4
     overwrite_same_size: bool = False
+    dry_run: bool = False
 
 
 @dataclass
@@ -274,6 +276,7 @@ class BackupStats:
     files_seen: int = 0
     downloaded: int = 0
     skipped: int = 0
+    would_download: int = 0
     failed: int = 0
     bytes_downloaded: int = 0
     current_repo: str = ""
@@ -409,7 +412,8 @@ class BackupRunner:
         self.log(
             "完成。"
             f"文件={self.stats.files_seen}，下载={self.stats.downloaded}，跳过={self.stats.skipped}，"
-            f"失败={self.stats.failed}，新增={human_size(self.stats.bytes_downloaded)}，耗时={elapsed/60:.1f} 分钟。"
+            f"试运行待下载={self.stats.would_download}，失败={self.stats.failed}，"
+            f"新增={human_size(self.stats.bytes_downloaded)}，耗时={elapsed/60:.1f} 分钟。"
         )
         self.emit("done", stats=self.stats.__dict__)
         return self.stats
@@ -477,12 +481,19 @@ class BackupRunner:
         expected_size = int(entry.get("size") or 0)
         mtime = int(entry.get("mtime") or 0)
         local_path.parent.mkdir(parents=True, exist_ok=True)
-        if local_path.exists() and local_path.stat().st_size == expected_size and not self.options.overwrite_same_size:
+        if self.local_file_is_current(local_path, expected_size, mtime) and not self.options.overwrite_same_size:
             if mtime:
                 set_mtime(local_path, mtime)
             with self.lock:
                 self.stats.skipped += 1
             self.write_file_row(writer, handle, repo, remote_path, local_path, expected_size, mtime, "skipped")
+            return
+
+        if self.options.dry_run:
+            with self.lock:
+                self.stats.would_download += 1
+            self.write_file_row(writer, handle, repo, remote_path, local_path, expected_size, mtime, "would_download")
+            self.emit_progress()
             return
 
         temp_path = local_path.with_name(f".{local_path.name}.part")
@@ -528,6 +539,20 @@ class BackupRunner:
         )
         self.write_file_row(writer, handle, repo, remote_path, local_path, expected_size, mtime, "failed")
         self.emit_progress()
+
+    @staticmethod
+    def local_file_is_current(local_path: Path, expected_size: int, mtime: int) -> bool:
+        if not local_path.exists():
+            return False
+        try:
+            stat = local_path.stat()
+        except OSError:
+            return False
+        if stat.st_size != expected_size:
+            return False
+        if not mtime:
+            return True
+        return abs(stat.st_mtime - mtime) <= 2
 
     def stream_to_file(self, download_url: str, temp_path: Path) -> int:
         headers = {}

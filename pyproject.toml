@@ -7,6 +7,8 @@ dependencies = []
 
 [project.scripts]
 tsinghua-cloud-backup = "tsinghua_cloud_backup.app:main"
+thu-cloud-keeper = "tsinghua_cloud_backup.app:main"
+thu-cloud-keeper-cli = "tsinghua_cloud_backup.cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
