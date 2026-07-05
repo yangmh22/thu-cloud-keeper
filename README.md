@@ -245,4 +245,4 @@ tsinghua-cloud-backup-macos
 
 ## 许可证
 
-暂未指定许可证。公开分发前建议补充合适的开源许可证。
+本项目采用 MIT License，详见 [LICENSE](LICENSE)。
