@@ -11,6 +11,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
@@ -276,7 +277,123 @@ class BackupStats:
     skipped: int = 0
     failed: int = 0
     bytes_downloaded: int = 0
+    bytes_total: int = 0
+    bytes_completed: int = 0
+    bytes_source_read: int = 0
+    bytes_uploaded: int = 0
+    download_speed_bps: float = 0.0
+    upload_speed_bps: float = 0.0
+    eta_seconds: float | None = None
     current_repo: str = ""
+
+
+class ProgressMeter:
+    def __init__(
+        self,
+        stats: BackupStats,
+        lock: threading.Lock,
+        window_seconds: float = 20.0,
+        min_emit_interval: float = 0.5,
+    ):
+        self.stats = stats
+        self.lock = lock
+        self.window_seconds = window_seconds
+        self.min_emit_interval = min_emit_interval
+        self.samples: dict[str, deque[tuple[float, int]]] = {
+            "download": deque(),
+            "upload": deque(),
+            "work": deque(),
+        }
+        self.finalized_bytes = 0
+        self.active_progress: dict[str, int] = {}
+        self.last_emit = 0.0
+
+    def set_total(self, total: int) -> None:
+        with self.lock:
+            self.stats.bytes_total = max(0, int(total or 0))
+            self._refresh_locked(time.monotonic())
+
+    def add_transfer(self, direction: str, byte_count: int, elapsed: float | None = None) -> bool:
+        byte_count = int(byte_count or 0)
+        if byte_count <= 0:
+            return False
+        now = time.monotonic()
+        sample_time = now
+        if elapsed and elapsed > 0:
+            sample_time = now - min(float(elapsed), self.window_seconds)
+        with self.lock:
+            if direction == "download":
+                self.stats.bytes_source_read += byte_count
+            elif direction == "upload":
+                self.stats.bytes_uploaded += byte_count
+            else:
+                return False
+            self.samples[direction].append((sample_time, byte_count))
+            self._refresh_locked(now)
+            return self._should_emit_locked(now)
+
+    def set_active_progress(self, key: str, completed: int) -> bool:
+        now = time.monotonic()
+        completed = max(0, int(completed or 0))
+        with self.lock:
+            previous = self.active_progress.get(key, 0)
+            self.active_progress[key] = completed
+            delta = completed - previous
+            if delta > 0:
+                self.samples["work"].append((now, delta))
+            self._refresh_locked(now)
+            return self._should_emit_locked(now)
+
+    def finish_progress(self, key: str, completed: int) -> None:
+        now = time.monotonic()
+        completed = max(0, int(completed or 0))
+        with self.lock:
+            previous = self.active_progress.pop(key, 0)
+            self.finalized_bytes += completed
+            delta = completed - previous
+            if delta > 0:
+                self.samples["work"].append((now, delta))
+            self._refresh_locked(now)
+
+    def clear_active_progress(self, key: str) -> bool:
+        now = time.monotonic()
+        with self.lock:
+            if key not in self.active_progress:
+                return False
+            self.active_progress.pop(key, None)
+            self._refresh_locked(now)
+            return self._should_emit_locked(now)
+
+    def _refresh_locked(self, now: float) -> None:
+        for sample in self.samples.values():
+            self._prune_locked(sample, now)
+        completed = self.finalized_bytes + sum(self.active_progress.values())
+        if self.stats.bytes_total:
+            completed = min(completed, self.stats.bytes_total)
+        self.stats.bytes_completed = max(0, completed)
+        self.stats.download_speed_bps = self._rate_locked(self.samples["download"], now)
+        self.stats.upload_speed_bps = self._rate_locked(self.samples["upload"], now)
+        work_speed_bps = self._rate_locked(self.samples["work"], now)
+        remaining = max(int(self.stats.bytes_total or 0) - int(self.stats.bytes_completed or 0), 0)
+        self.stats.eta_seconds = remaining / work_speed_bps if remaining and work_speed_bps > 0 else None
+
+    def _prune_locked(self, sample: deque[tuple[float, int]], now: float) -> None:
+        threshold = now - self.window_seconds
+        while sample and sample[0][0] < threshold:
+            sample.popleft()
+
+    def _rate_locked(self, sample: deque[tuple[float, int]], now: float) -> float:
+        if not sample:
+            return 0.0
+        total = sum(byte_count for _, byte_count in sample)
+        span = max(now - sample[0][0], 1.0)
+        return total / span
+
+    def _should_emit_locked(self, now: float) -> bool:
+        if now - self.last_emit < self.min_emit_interval:
+            return False
+        self.last_emit = now
+        return True
 
 
 class BackupRunner:
@@ -300,6 +417,7 @@ class BackupRunner:
         self.lock = threading.Lock()
         self.writer_lock = threading.Lock()
         self.stats = BackupStats()
+        self.progress_meter = ProgressMeter(self.stats, self.lock)
         self.executor: concurrent.futures.ThreadPoolExecutor | None = None
         self.pending: set[concurrent.futures.Future] = set()
 
@@ -386,7 +504,9 @@ class BackupRunner:
         self.write_repository_index(repos)
         selected = [repo for repo in repos if category_for(repo) in self.options.categories]
         self.stats.repositories_total = len(selected)
+        self.progress_meter.set_total(sum(int(repo.get("size") or 0) for repo in selected))
         self.log(f"发现 {len(repos)} 个唯一资料库，选中 {len(selected)} 个。")
+        self.emit_progress()
 
         with self.files_csv_path.open("a", newline="", encoding="utf-8-sig") as handle:
             writer = csv.DictWriter(
@@ -476,6 +596,7 @@ class BackupRunner:
         self.check_cancelled()
         expected_size = int(entry.get("size") or 0)
         mtime = int(entry.get("mtime") or 0)
+        file_key = f"{repo['id']}:{remote_path}:{local_path}"
         local_path.parent.mkdir(parents=True, exist_ok=True)
         if local_path.exists() and local_path.stat().st_size == expected_size and not self.options.overwrite_same_size:
             if mtime:
@@ -483,6 +604,8 @@ class BackupRunner:
             with self.lock:
                 self.stats.skipped += 1
             self.write_file_row(writer, handle, repo, remote_path, local_path, expected_size, mtime, "skipped")
+            self.progress_meter.finish_progress(file_key, expected_size)
+            self.emit_progress()
             return
 
         temp_path = local_path.with_name(f".{local_path.name}.part")
@@ -491,7 +614,7 @@ class BackupRunner:
             self.check_cancelled()
             try:
                 download_url = self.client.download_url(repo["id"], remote_path)
-                bytes_written = self.stream_to_file(download_url, temp_path)
+                bytes_written = self.stream_to_file(download_url, temp_path, file_key, expected_size)
                 actual_size = temp_path.stat().st_size
                 if expected_size and actual_size != expected_size:
                     raise IOError(f"size mismatch: expected {expected_size}, got {actual_size}")
@@ -500,10 +623,13 @@ class BackupRunner:
                     set_mtime(local_path, mtime)
                 with self.lock:
                     self.stats.downloaded += 1
-                    self.stats.bytes_downloaded += bytes_written
+                    self.stats.bytes_downloaded += expected_size or bytes_written
                 self.write_file_row(writer, handle, repo, remote_path, local_path, expected_size, mtime, "downloaded")
+                self.progress_meter.finish_progress(file_key, expected_size or bytes_written)
                 self.emit_progress()
                 return
+            except CancelledBackup:
+                raise
             except Exception as exc:
                 last_error = exc
                 keep_part = isinstance(exc, IOError) and str(exc).startswith("size mismatch:")
@@ -512,6 +638,8 @@ class BackupRunner:
                         temp_path.unlink()
                     except OSError:
                         pass
+                    if self.progress_meter.set_active_progress(file_key, 0):
+                        self.emit_progress()
                 if attempt < 3:
                     time.sleep(2 * attempt)
         self.log(f"文件失败 {repo['name']}:{remote_path} | {last_error}")
@@ -527,21 +655,26 @@ class BackupRunner:
             }
         )
         self.write_file_row(writer, handle, repo, remote_path, local_path, expected_size, mtime, "failed")
+        self.progress_meter.finish_progress(file_key, expected_size)
         self.emit_progress()
 
-    def stream_to_file(self, download_url: str, temp_path: Path) -> int:
+    def stream_to_file(self, download_url: str, temp_path: Path, file_key: str, expected_size: int) -> int:
         headers = {}
         resume_at = 0
         if temp_path.exists():
             resume_at = temp_path.stat().st_size
             if resume_at:
                 headers["Range"] = f"bytes={resume_at}-"
+                if self.progress_meter.set_active_progress(file_key, min(resume_at, expected_size or resume_at)):
+                    self.emit_progress()
         mode = "ab" if resume_at else "wb"
         bytes_written = 0
         with self.client.open(download_url, headers=headers, timeout=1800) as response:
             if resume_at and getattr(response, "status", 200) == 200:
                 mode = "wb"
                 resume_at = 0
+                if self.progress_meter.set_active_progress(file_key, 0):
+                    self.emit_progress()
             with temp_path.open(mode) as handle:
                 while True:
                     self.check_cancelled()
@@ -550,6 +683,11 @@ class BackupRunner:
                         break
                     handle.write(chunk)
                     bytes_written += len(chunk)
+                    should_emit = self.progress_meter.add_transfer("download", len(chunk))
+                    current = resume_at + bytes_written
+                    should_emit = self.progress_meter.set_active_progress(file_key, min(current, expected_size or current)) or should_emit
+                    if should_emit:
+                        self.emit_progress()
         return resume_at + bytes_written
 
     def write_file_row(self, writer: csv.DictWriter, handle, repo: dict, remote_path: str, local_path: Path, size: int, mtime: int, status: str) -> None:

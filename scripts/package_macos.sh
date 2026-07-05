@@ -7,6 +7,7 @@ APP_NAME="清华云盘自助备份"
 cd "$PROJECT_ROOT"
 
 python3 -m pip install --upgrade pyinstaller
+python3 -m pip install -e "$PROJECT_ROOT"
 
 python3 -m PyInstaller \
   --noconfirm \
@@ -17,8 +18,8 @@ python3 -m PyInstaller \
   --workpath "$PROJECT_ROOT/build" \
   --specpath "$PROJECT_ROOT/build" \
   --paths "$PROJECT_ROOT/src" \
-  --hidden-import tkinter \
-  --hidden-import tkinter.ttk \
+  --hidden-import tsinghua_cloud_backup.app \
+  --hidden-import tsinghua_cloud_backup.web_console \
   "$PROJECT_ROOT/scripts/pyinstaller_entry.py"
 
 ZIP_PATH="$PROJECT_ROOT/dist/$APP_NAME-macos.zip"

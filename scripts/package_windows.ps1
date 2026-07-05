@@ -7,6 +7,7 @@ $AppName = -join ([char[]](0x6E05, 0x534E, 0x4E91, 0x76D8, 0x81EA, 0x52A9, 0x590
 Set-Location $ProjectRoot
 
 python -m pip install --upgrade pyinstaller
+python -m pip install -e $ProjectRoot
 
 python -m PyInstaller `
   --noconfirm `
@@ -17,8 +18,8 @@ python -m PyInstaller `
   --workpath "$ProjectRoot\build" `
   --specpath "$ProjectRoot\build" `
   --paths "$ProjectRoot\src" `
-  --hidden-import tkinter `
-  --hidden-import tkinter.ttk `
+  --hidden-import tsinghua_cloud_backup.app `
+  --hidden-import tsinghua_cloud_backup.web_console `
   "$ProjectRoot\scripts\pyinstaller_entry.py"
 
 $ZipPath = Join-Path $ProjectRoot "dist\$AppName-windows.zip"

@@ -1,4 +1,4 @@
-from tsinghua_cloud_backup.app import main
+from tsinghua_cloud_backup.cli import main
 
 
 if __name__ == "__main__":
