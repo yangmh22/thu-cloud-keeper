@@ -1,104 +1,69 @@
 param(
-  [string]$Destination,
-  [string]$TaskName = "THUCloudKeeperDailySync",
+  [string]$TaskName = "THU Cloud Keeper Daily Sync",
+  [string]$Destination = "D:\Fbackup\清华云盘备份",
   [string]$At = "04:00",
   [int]$Workers = 4,
-  [string]$PythonExe = "",
-  [switch]$DryRun,
-  [switch]$RunNow
+  [string]$PythonExe = "D:\ApplicationAndData\MiniConda\python.exe",
+  [switch]$Force
 )
 
 $ErrorActionPreference = "Stop"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
-function Quote-TaskArgument {
-  param([string]$Value)
-  return '"' + ($Value -replace '"', '\"') + '"'
-}
-
 $ProjectRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
-$ProjectRoot = (Resolve-Path -LiteralPath $ProjectRoot).Path
-$RunnerScript = Join-Path $ProjectRoot "scripts\run_scheduled_sync.ps1"
+$SyncScript = Join-Path $ProjectRoot "scripts\run_scheduled_sync.ps1"
 
-if (-not (Test-Path -LiteralPath $RunnerScript)) {
-  throw "Scheduled sync runner not found: $RunnerScript"
+if (-not (Test-Path -LiteralPath $SyncScript)) {
+  throw "Scheduled sync script not found: $SyncScript"
+}
+if (-not (Test-Path -LiteralPath $PythonExe)) {
+  throw "Python executable not found: $PythonExe"
 }
 
-if (-not $Destination) {
-  $BackupFolder = -join ([char[]](0x6E05, 0x534E, 0x4E91, 0x76D8, 0x5907, 0x4EFD))
-  $Destination = Join-Path "D:\Fbackup" $BackupFolder
+$existing = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+if ($existing -and -not $Force) {
+  throw "Task already exists: $TaskName. Re-run with -Force to update it."
 }
-$Destination = [System.IO.Path]::GetFullPath($Destination)
+if ($existing -and $Force) {
+  Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
+}
+
 New-Item -ItemType Directory -Force -Path $Destination | Out-Null
 
-if (-not $PythonExe) {
-  $PythonCommand = Get-Command python -ErrorAction Stop
-  $PythonExe = $PythonCommand.Source
-}
-$PythonExe = [System.IO.Path]::GetFullPath($PythonExe)
-
-try {
-  $ParsedAt = [TimeSpan]::Parse($At)
-} catch {
-  throw "Invalid time '$At'. Use HH:mm, for example 04:00."
-}
-$RunAt = [DateTime]::Today.Add($ParsedAt)
-
-$ActionArgs = @(
+$argument = @(
   "-NoProfile",
-  "-ExecutionPolicy",
-  "Bypass",
-  "-File",
-  $RunnerScript,
-  "-Destination",
-  $Destination,
-  "-Workers",
-  [string]$Workers,
-  "-PythonExe",
-  $PythonExe
-)
-if ($DryRun) {
-  $ActionArgs += "-DryRun"
-}
+  "-ExecutionPolicy", "Bypass",
+  "-File", "`"$SyncScript`"",
+  "-Destination", "`"$Destination`"",
+  "-Workers", $Workers,
+  "-PythonExe", "`"$PythonExe`""
+) -join " "
 
-$Action = New-ScheduledTaskAction `
-  -Execute "powershell.exe" `
-  -Argument (($ActionArgs | ForEach-Object { Quote-TaskArgument $_ }) -join " ") `
-  -WorkingDirectory $ProjectRoot
-
-$Trigger = New-ScheduledTaskTrigger -Daily -At $RunAt
-$Settings = New-ScheduledTaskSettingsSet `
-  -MultipleInstances IgnoreNew `
+$action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $argument -WorkingDirectory $ProjectRoot
+$trigger = New-ScheduledTaskTrigger -Daily -At $At
+$settings = New-ScheduledTaskSettingsSet `
   -StartWhenAvailable `
   -WakeToRun `
-  -ExecutionTimeLimit (New-TimeSpan -Hours 12) `
-  -AllowStartIfOnBatteries `
-  -DontStopIfGoingOnBatteries
-
-$CurrentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
-$Principal = New-ScheduledTaskPrincipal `
-  -UserId $CurrentUser `
-  -LogonType Interactive `
-  -RunLevel Limited
+  -MultipleInstances IgnoreNew `
+  -ExecutionTimeLimit (New-TimeSpan -Hours 20) `
+  -RestartCount 2 `
+  -RestartInterval (New-TimeSpan -Minutes 15)
+$principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
 
 Register-ScheduledTask `
   -TaskName $TaskName `
-  -Action $Action `
-  -Trigger $Trigger `
-  -Settings $Settings `
-  -Principal $Principal `
-  -Description "Run THU Cloud Keeper incremental sync every day." `
-  -Force | Out-Null
+  -Action $action `
+  -Trigger $trigger `
+  -Settings $settings `
+  -Principal $principal `
+  -Description "Daily incremental sync from Tsinghua Cloud to local backup folder." | Out-Null
 
-Write-Host "Registered scheduled task: $TaskName"
-Write-Host "Schedule: daily at $At"
-Write-Host "Destination: $Destination"
-Write-Host "Python: $PythonExe"
-Write-Host "Runner: $RunnerScript"
-$TaskInfo = Get-ScheduledTaskInfo -TaskName $TaskName
-Write-Host "Next run: $($TaskInfo.NextRunTime)"
-
-if ($RunNow) {
-  Start-ScheduledTask -TaskName $TaskName
-  Write-Host "Started task once in the background."
-}
+Write-Host "Scheduled task installed:"
+Write-Host "  Name: $TaskName"
+Write-Host "  Time: $At every day"
+Write-Host "  Destination: $Destination"
+Write-Host "  Script: $SyncScript"
+Write-Host "  Python: $PythonExe"
+Write-Host ""
+Write-Host "Token is read from Windows Credential Manager target:"
+Write-Host "  THUCloudKeeper:TsinghuaCloudToken"

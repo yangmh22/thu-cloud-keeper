@@ -298,8 +298,15 @@ class BackupRunner:
         self.meta_dir = self.destination / "_backup_metadata"
         self.log_path = self.meta_dir / "backup.log"
         self.failures_path = self.meta_dir / "failures.jsonl"
+        self.manifest_path = self.meta_dir / "manifest.json"
         self.repos_csv_path = self.meta_dir / "repositories.csv"
         self.files_csv_path = self.meta_dir / "files.csv"
+        if self.options.dry_run:
+            self.log_path = self.meta_dir / "dry-run.log"
+            self.failures_path = self.meta_dir / "dry-run-failures.jsonl"
+            self.manifest_path = self.meta_dir / "dry-run-manifest.json"
+            self.repos_csv_path = self.meta_dir / "dry-run-repositories.csv"
+            self.files_csv_path = self.meta_dir / "dry-run-files.csv"
         self.lock = threading.Lock()
         self.writer_lock = threading.Lock()
         self.stats = BackupStats()
@@ -342,7 +349,7 @@ class BackupRunner:
             "total_declared_size": sum(int(repo.get("size") or 0) for repo in repos),
             "repositories": repos,
         }
-        (self.meta_dir / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+        self.manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
         with self.repos_csv_path.open("w", newline="", encoding="utf-8-sig") as handle:
             writer = csv.DictWriter(
                 handle,
