@@ -3,11 +3,40 @@ param(
   [int]$Workers = 4,
   [string]$PythonExe = "python",
   [string]$ProjectRoot = "",
-  [switch]$DryRun
+  [switch]$DryRun,
+  [switch]$NoPopup
 )
 
 $ErrorActionPreference = "Stop"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+
+function Show-SyncFailurePopup {
+  param(
+    [string]$Message,
+    [string]$LogPath
+  )
+
+  try {
+    Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop
+    $Body = @(
+      "THU Cloud Keeper scheduled sync failed.",
+      "",
+      $Message,
+      "",
+      "Log file:",
+      $LogPath
+    ) -join [Environment]::NewLine
+
+    [System.Windows.Forms.MessageBox]::Show(
+      $Body,
+      "THU Cloud Keeper sync failed",
+      [System.Windows.Forms.MessageBoxButtons]::OK,
+      [System.Windows.Forms.MessageBoxIcon]::Error
+    ) | Out-Null
+  } catch {
+    Write-Warning "Failed to show popup notification: $($_.Exception.Message)"
+  }
+}
 
 if (-not $ProjectRoot) {
   $ProjectRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
@@ -35,6 +64,7 @@ if ($PreviousPythonPath) {
 }
 
 $ExitCode = 0
+$PopupMessage = ""
 Start-Transcript -Path $TranscriptPath -Append | Out-Null
 try {
   Write-Host "THU Cloud Keeper scheduled sync"
@@ -75,10 +105,16 @@ try {
   Write-Host "Finished:    $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
 } catch {
   $ExitCode = 1
-  Write-Error $_
+  $ErrorMessage = $_.Exception.Message
+  $PopupMessage = $ErrorMessage
+  Write-Error -ErrorRecord $_ -ErrorAction Continue
 } finally {
   $env:PYTHONPATH = $PreviousPythonPath
   Stop-Transcript | Out-Null
+}
+
+if (($ExitCode -ne 0) -and (-not $NoPopup)) {
+  Show-SyncFailurePopup -Message $PopupMessage -LogPath $TranscriptPath
 }
 
 exit $ExitCode

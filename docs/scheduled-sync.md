@@ -54,9 +54,16 @@ Default schedule:
 
 ```text
 Every day at 04:00
+After current user logon, with a short random delay
 ```
 
 The task is configured with `StartWhenAvailable` and `WakeToRun`, so Windows can run it after a missed scheduled time and may wake the computer when the system allows wake timers.
+
+To disable the logon trigger:
+
+```powershell
+.\scripts\install_scheduled_sync.ps1 -NoLogonTrigger -Force
+```
 
 ## Run Manually
 
@@ -84,6 +91,12 @@ The normal backup metadata is also refreshed in:
 
 ```text
 D:\Fbackup\清华云盘备份\_backup_metadata\
+```
+
+If a scheduled run fails, the PowerShell wrapper shows a Windows error dialog with the failure message and the exact transcript log path. For non-interactive runs or tests, pass `-NoPopup` to suppress the dialog:
+
+```powershell
+.\scripts\run_scheduled_sync.ps1 -NoPopup
 ```
 
 ## Check Task Status

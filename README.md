@@ -92,7 +92,7 @@ python -m pip install -e .
 python -m tsinghua_cloud_backup.cli check
 ```
 
-注册每天凌晨 4 点自动同步到 `D:\Fbackup\清华云盘备份`：
+注册每天凌晨 4 点自动同步到 `D:\Fbackup\清华云盘备份`，并在当前 Windows 用户登录后自动补跑一次：
 
 ```powershell
 .\scripts\install_scheduled_sync.ps1
@@ -104,11 +104,19 @@ python -m tsinghua_cloud_backup.cli check
 .\scripts\install_scheduled_sync.ps1 -At "04:00" -Destination "D:\Fbackup\清华云盘备份" -Workers 4
 ```
 
+如果只需要每日定时运行，不希望登录后自动运行：
+
+```powershell
+.\scripts\install_scheduled_sync.ps1 -NoLogonTrigger
+```
+
 计划任务名称是 `THU Cloud Keeper Daily Sync`。同步日志会写入：
 
 ```text
 D:\Fbackup\清华云盘备份\_backup_metadata\scheduled_logs\
 ```
+
+同步失败时，脚本会弹出 Windows 错误提示，并在提示中显示对应日志文件路径。
 
 手动运行一次同步：
 
