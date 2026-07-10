@@ -104,7 +104,7 @@ python -m tsinghua_cloud_backup.cli check
 .\scripts\install_scheduled_sync.ps1 -At "04:00" -Destination "D:\Fbackup\清华云盘备份" -Workers 4
 ```
 
-计划任务名称是 `THUCloudKeeperDailySync`。同步日志会写入：
+计划任务名称是 `THU Cloud Keeper Daily Sync`。同步日志会写入：
 
 ```text
 D:\Fbackup\清华云盘备份\_backup_metadata\scheduled_logs\
@@ -125,7 +125,13 @@ D:\Fbackup\清华云盘备份\_backup_metadata\scheduled_logs\
 删除计划任务：
 
 ```powershell
-Unregister-ScheduledTask -TaskName THUCloudKeeperDailySync -Confirm:$false
+Unregister-ScheduledTask -TaskName "THU Cloud Keeper Daily Sync" -Confirm:$false
+```
+
+检查计划任务最近一次运行状态：
+
+```powershell
+Get-ScheduledTaskInfo -TaskName "THU Cloud Keeper Daily Sync"
 ```
 
 默认计划任务使用当前 Windows 用户的交互式登录身份运行。也就是说，电脑在凌晨 4 点需要开机，且该用户需要处于已登录或可交互运行的状态；如果希望“用户未登录也运行”，需要在 Windows 任务计划程序里为该任务配置保存 Windows 凭据。

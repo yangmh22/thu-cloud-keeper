@@ -38,6 +38,12 @@ THUCloudKeeper:TsinghuaCloudToken
 .\scripts\install_scheduled_sync.ps1 -Force
 ```
 
+Default task name:
+
+```text
+THU Cloud Keeper Daily Sync
+```
+
 Default destination:
 
 ```text
@@ -68,8 +74,21 @@ python -m tsinghua_cloud_backup.cli sync --destination "D:\Fbackup\清华云盘�
 
 ## Logs
 
-Scheduled task logs are appended to:
+Each scheduled run writes a timestamped transcript log under:
 
 ```text
-D:\Fbackup\清华云盘备份\_backup_metadata\scheduled-sync.log
+D:\Fbackup\清华云盘备份\_backup_metadata\scheduled_logs\
+```
+
+The normal backup metadata is also refreshed in:
+
+```text
+D:\Fbackup\清华云盘备份\_backup_metadata\
+```
+
+## Check Task Status
+
+```powershell
+Get-ScheduledTask -TaskName "THU Cloud Keeper Daily Sync"
+Get-ScheduledTaskInfo -TaskName "THU Cloud Keeper Daily Sync"
 ```
